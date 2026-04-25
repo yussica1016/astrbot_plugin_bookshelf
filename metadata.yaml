@@ -1,0 +1,8 @@
+name: astrbot_plugin_bookshelf
+display_name: 书架 Bookshelf
+desc: 上传书籍文本，按章节切分存储，支持书架、目录、读章节、阅读进度、笔记、读后感、共读面板。
+version: "2.0.0"
+author: "沈砚清"
+repo: ""
+type: common
+astrbot_version: ">=4.16,<5"
