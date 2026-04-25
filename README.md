@@ -1,5 +1,7 @@
 # astrbot_plugin_bookshelf
 
+叶枔枖设计，沈砚清编写。
+
 AstrBot 书架插件。支持上传 TXT 书籍、按章节切分存储、阅读指定章节、查看目录、阅读进度、删除书籍、写笔记、看笔记、写读后感、看读后感、共读面板。
 
 > 本仓库根据《AstrBot 书架插件开发教程 astrbot_plugin_bookshelf v2.0.0》整理实现。
