@@ -7,14 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import File
-from astrbot.api.star import Context, Star, register
-
-
-BOOKSHELF_DIR = os.path.join(os.path.dirname(__file__), "books")
-
-
-def _ensure_dir() -> None:
-    os.makedirs(BOOKSHELF_DIR, exist_ok=True)
+from astrbot.api.star import Context, Star, register, StarTools
 
 
 def _safe_name(name: str) -> str:
@@ -25,24 +18,28 @@ def _safe_name(name: str) -> str:
     return name[:80] or "未命名书籍"
 
 
-def _book_dir(book_name: str) -> str:
-    return os.path.join(BOOKSHELF_DIR, _safe_name(book_name))
+def _ensure_dir(data_dir: str) -> None:
+    os.makedirs(data_dir, exist_ok=True)
 
 
-def _index_path(book_name: str) -> str:
-    return os.path.join(_book_dir(book_name), "index.json")
+def _book_dir(data_dir: str, book_name: str) -> str:
+    return os.path.join(data_dir, _safe_name(book_name))
 
 
-def _notes_path(book_name: str) -> str:
-    return os.path.join(_book_dir(book_name), "notes.json")
+def _index_path(data_dir: str, book_name: str) -> str:
+    return os.path.join(_book_dir(data_dir, book_name), "index.json")
 
 
-def _thoughts_path(book_name: str) -> str:
-    return os.path.join(_book_dir(book_name), "thoughts.json")
+def _notes_path(data_dir: str, book_name: str) -> str:
+    return os.path.join(_book_dir(data_dir, book_name), "notes.json")
 
 
-def _chapter_path(book_name: str, chapter_no: int) -> str:
-    return os.path.join(_book_dir(book_name), f"chapter_{chapter_no:04d}.txt")
+def _thoughts_path(data_dir: str, book_name: str) -> str:
+    return os.path.join(_book_dir(data_dir, book_name), "thoughts.json")
+
+
+def _chapter_path(data_dir: str, book_name: str, chapter_no: int) -> str:
+    return os.path.join(_book_dir(data_dir, book_name), f"chapter_{chapter_no:04d}.txt")
 
 
 def _now() -> str:
@@ -102,9 +99,9 @@ def _split_chapters(text: str) -> List[Tuple[str, str]]:
     return chapters
 
 
-def _save_book(book_name: str, text: str) -> Dict[str, Any]:
-    _ensure_dir()
-    book_dir = _book_dir(book_name)
+def _save_book(data_dir: str, book_name: str, text: str) -> Dict[str, Any]:
+    _ensure_dir(data_dir)
+    book_dir = _book_dir(data_dir, book_name)
     os.makedirs(book_dir, exist_ok=True)
 
     chapters = _split_chapters(text)
@@ -113,7 +110,7 @@ def _save_book(book_name: str, text: str) -> Dict[str, Any]:
 
     chapter_meta = []
     for idx, (title, content) in enumerate(chapters, start=1):
-        with open(_chapter_path(book_name, idx), "w", encoding="utf-8") as f:
+        with open(_chapter_path(data_dir, book_name, idx), "w", encoding="utf-8") as f:
             f.write(content)
         chapter_meta.append({"no": idx, "title": title, "chars": len(content)})
 
@@ -126,38 +123,31 @@ def _save_book(book_name: str, text: str) -> Dict[str, Any]:
         "total_chapters": len(chapters),
         "chapters": chapter_meta,
     }
-    _save_json(_index_path(book_name), index)
-    if not os.path.exists(_notes_path(book_name)):
-        _save_json(_notes_path(book_name), [])
-    if not os.path.exists(_thoughts_path(book_name)):
-        _save_json(_thoughts_path(book_name), [])
+    _save_json(_index_path(data_dir, book_name), index)
+    if not os.path.exists(_notes_path(data_dir, book_name)):
+        _save_json(_notes_path(data_dir, book_name), [])
+    if not os.path.exists(_thoughts_path(data_dir, book_name)):
+        _save_json(_thoughts_path(data_dir, book_name), [])
     return index
 
 
-def _load_index(book_name: str) -> Optional[Dict[str, Any]]:
-    path = _index_path(book_name)
+def _load_index(data_dir: str, book_name: str) -> Optional[Dict[str, Any]]:
+    path = _index_path(data_dir, book_name)
     if not os.path.exists(path):
         return None
     return _load_json(path, None)
 
 
-def _list_books() -> List[Dict[str, Any]]:
-    _ensure_dir()
+def _list_books(data_dir: str) -> List[Dict[str, Any]]:
+    _ensure_dir(data_dir)
     books = []
-    for dirname in sorted(os.listdir(BOOKSHELF_DIR)):
-        path = os.path.join(BOOKSHELF_DIR, dirname, "index.json")
+    for dirname in sorted(os.listdir(data_dir)):
+        path = os.path.join(data_dir, dirname, "index.json")
         if os.path.exists(path):
             data = _load_json(path, None)
             if data:
                 books.append(data)
     return books
-
-
-def _parse_chapter_no(raw: str) -> Optional[int]:
-    m = re.search(r"第?\s*([0-9]+)\s*章?", raw)
-    if m:
-        return int(m.group(1))
-    return None
 
 
 def _author_name(event: AstrMessageEvent) -> str:
@@ -168,40 +158,41 @@ def _author_name(event: AstrMessageEvent) -> str:
     return event.get_sender_name() or uid
 
 
-def _format_chapter_preview(book_name: str, chapter_no: int, limit: int = 3500) -> str:
-    index = _load_index(book_name)
+def _format_chapter_preview(data_dir: str, book_name: str, chapter_no: int, limit: int = 3500) -> str:
+    index = _load_index(data_dir, book_name)
     if not index:
         return f"没找到《{book_name}》。"
     total = int(index.get("total_chapters", 0))
     if chapter_no < 1 or chapter_no > total:
         return f"章节不存在。《{book_name}》共有 {total} 章。"
 
-    path = _chapter_path(book_name, chapter_no)
+    path = _chapter_path(data_dir, book_name, chapter_no)
     with open(path, "r", encoding="utf-8") as f:
         content = f.read().strip()
 
     title = index["chapters"][chapter_no - 1].get("title", f"第 {chapter_no} 章")
     index["current_chapter"] = chapter_no
     index["updated_at"] = _now()
-    _save_json(_index_path(book_name), index)
+    _save_json(_index_path(data_dir, book_name), index)
 
     suffix = "" if len(content) <= limit else f"\n\n……本章较长，已截断显示前 {limit} 字。"
     return f"《{book_name}》\n{title}\n\n{content[:limit]}{suffix}"
 
 
-@register("astrbot_plugin_bookshelf", "沈砚清", "书架插件", "2.0.0")
+@register("astrbot_plugin_bookshelf", "沈砚清", "书架插件", "2.0.0", "https://github.com/yussica1016/astrbot_plugin_bookshelf")
 class BookshelfPlugin(Star):
     def __init__(self, context: Context, config: Optional[Dict[str, Any]] = None):
         super().__init__(context)
         self.config = config or {}
         self._pending_uploads: Dict[str, str] = {}
-        _ensure_dir()
+        self.data_dir = str(StarTools.get_data_dir(self.name))
+        os.makedirs(self.data_dir, exist_ok=True)
 
     @filter.command("上传书籍")
     async def upload_book_text(self, event: AstrMessageEvent, book_name: str, content: str):
         """上传书籍全文：/上传书籍 书名 全文"""
         try:
-            index = _save_book(book_name, content)
+            index = _save_book(self.data_dir, book_name, content)
             yield event.plain_result(
                 f"已保存《{book_name}》。\n共 {index['total_chapters']} 章。\n可以用 /目录 {book_name} 查看目录。"
             )
@@ -235,7 +226,7 @@ class BookshelfPlugin(Star):
             file_path = await file_comp.get_file()
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 text = f.read()
-            index = _save_book(book_name, text)
+            index = _save_book(self.data_dir, book_name, text)
             yield event.plain_result(f"已导入《{book_name}》。共 {index['total_chapters']} 章。")
         except Exception as exc:
             logger.exception("bookshelf: receive_file failed")
@@ -243,7 +234,7 @@ class BookshelfPlugin(Star):
 
     @filter.command("书架", alias={"/书架"})
     async def list_books(self, event: AstrMessageEvent):
-        books = _list_books()
+        books = _list_books(self.data_dir)
         if not books:
             yield event.plain_result("书架还是空的。可以用 /上传文本 书名 上传 txt。")
             return
@@ -256,7 +247,7 @@ class BookshelfPlugin(Star):
 
     @filter.command("目录")
     async def catalog(self, event: AstrMessageEvent, book_name: str):
-        index = _load_index(book_name)
+        index = _load_index(self.data_dir, book_name)
         if not index:
             yield event.plain_result(f"没找到《{book_name}》。")
             return
@@ -273,11 +264,11 @@ class BookshelfPlugin(Star):
             return
         book_name = m.group(1).strip()
         chapter_no = int(m.group(2))
-        yield event.plain_result(_format_chapter_preview(book_name, chapter_no))
+        yield event.plain_result(_format_chapter_preview(self.data_dir, book_name, chapter_no))
 
     @filter.command("阅读进度")
     async def progress(self, event: AstrMessageEvent, book_name: str):
-        index = _load_index(book_name)
+        index = _load_index(self.data_dir, book_name)
         if not index:
             yield event.plain_result(f"没找到《{book_name}》。")
             return
@@ -290,7 +281,7 @@ class BookshelfPlugin(Star):
     async def delete_book(self, event: AstrMessageEvent, book_name: str):
         import shutil
 
-        path = _book_dir(book_name)
+        path = _book_dir(self.data_dir, book_name)
         if not os.path.exists(path):
             yield event.plain_result(f"没找到《{book_name}》。")
             return
@@ -304,12 +295,12 @@ class BookshelfPlugin(Star):
         if not m:
             return
         book_name, chapter_no, content = m.group(1).strip(), int(m.group(2)), m.group(3).strip()
-        if not _load_index(book_name):
+        if not _load_index(self.data_dir, book_name):
             yield event.plain_result(f"没找到《{book_name}》。")
             return
-        notes = _load_json(_notes_path(book_name), [])
+        notes = _load_json(_notes_path(self.data_dir, book_name), [])
         notes.append({"author": _author_name(event), "chapter": chapter_no, "content": content, "time": _now()})
-        _save_json(_notes_path(book_name), notes)
+        _save_json(_notes_path(self.data_dir, book_name), notes)
         yield event.plain_result(f"已记录《{book_name}》第 {chapter_no} 章笔记。")
 
     @filter.regex(r"^/?看笔记\s+(.+?)\s+第?\s*(\d+)\s*章?$")
@@ -319,7 +310,7 @@ class BookshelfPlugin(Star):
         if not m:
             return
         book_name, chapter_no = m.group(1).strip(), int(m.group(2))
-        notes = [n for n in _load_json(_notes_path(book_name), []) if int(n.get("chapter", 0)) == chapter_no]
+        notes = [n for n in _load_json(_notes_path(self.data_dir, book_name), []) if int(n.get("chapter", 0)) == chapter_no]
         if not notes:
             yield event.plain_result(f"《{book_name}》第 {chapter_no} 章还没有笔记。")
             return
@@ -330,7 +321,7 @@ class BookshelfPlugin(Star):
 
     @filter.command("所有笔记")
     async def all_notes(self, event: AstrMessageEvent, book_name: str):
-        notes = _load_json(_notes_path(book_name), [])
+        notes = _load_json(_notes_path(self.data_dir, book_name), [])
         if not notes:
             yield event.plain_result(f"《{book_name}》还没有笔记。")
             return
@@ -346,12 +337,12 @@ class BookshelfPlugin(Star):
         if not m:
             return
         book_name, chapter_no, content = m.group(1).strip(), int(m.group(2)), m.group(3).strip()
-        if not _load_index(book_name):
+        if not _load_index(self.data_dir, book_name):
             yield event.plain_result(f"没找到《{book_name}》。")
             return
-        thoughts = _load_json(_thoughts_path(book_name), [])
+        thoughts = _load_json(_thoughts_path(self.data_dir, book_name), [])
         thoughts.append({"author": _author_name(event), "chapter": chapter_no, "content": content, "time": _now()})
-        _save_json(_thoughts_path(book_name), thoughts)
+        _save_json(_thoughts_path(self.data_dir, book_name), thoughts)
         yield event.plain_result(f"已记录《{book_name}》第 {chapter_no} 章读后感。")
 
     @filter.regex(r"^/?看读后感\s+(.+?)(?:\s+第?\s*(\d+)\s*章?)?$")
@@ -362,7 +353,7 @@ class BookshelfPlugin(Star):
             return
         book_name = m.group(1).strip()
         chapter_raw = m.group(2)
-        thoughts = _load_json(_thoughts_path(book_name), [])
+        thoughts = _load_json(_thoughts_path(self.data_dir, book_name), [])
         if chapter_raw:
             chapter_no = int(chapter_raw)
             thoughts = [t for t in thoughts if int(t.get("chapter", 0)) == chapter_no]
@@ -376,12 +367,12 @@ class BookshelfPlugin(Star):
 
     @filter.command("共读")
     async def shared_panel(self, event: AstrMessageEvent, book_name: str):
-        index = _load_index(book_name)
+        index = _load_index(self.data_dir, book_name)
         if not index:
             yield event.plain_result(f"没找到《{book_name}》。")
             return
-        notes = _load_json(_notes_path(book_name), [])
-        thoughts = _load_json(_thoughts_path(book_name), [])
+        notes = _load_json(_notes_path(self.data_dir, book_name), [])
+        thoughts = _load_json(_thoughts_path(self.data_dir, book_name), [])
         current = int(index.get("current_chapter", 1))
         total = int(index.get("total_chapters", 0))
         next_ch = min(current + 1, total) if total else 1
