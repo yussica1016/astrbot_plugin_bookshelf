@@ -152,9 +152,9 @@ def _list_books(data_dir: str) -> List[Dict[str, Any]]:
 
 def _author_name(event: AstrMessageEvent) -> str:
     uid = str(event.get_sender_id())
-    # 这里可以按需改成你自己的 UID 昵称映射。
-    if uid == "xxxxxxxx":
-        return "枔枔"
+    owner_uid = os.environ.get("BOOKSHELF_OWNER_UID", "")
+    if uid == owner_uid and owner_uid:
+        return os.environ.get("BOOKSHELF_OWNER_NAME", "主人")
     return event.get_sender_name() or uid
 
 
@@ -184,9 +184,16 @@ class BookshelfPlugin(Star):
     def __init__(self, context: Context, config: Optional[Dict[str, Any]] = None):
         super().__init__(context)
         self.config = config or {}
-        self._pending_uploads: Dict[str, str] = {}
+        self._pending_uploads: Dict[str, Tuple[str, float]] = {}  # uid -> (book_name, timestamp)
         self.data_dir = str(StarTools.get_data_dir(self.name))
         os.makedirs(self.data_dir, exist_ok=True)
+
+    def _cleanup_stale_uploads(self, max_age: int = 300):
+        """清理超过 max_age 秒的待上传记录，防止内存泄漏"""
+        now = time.time()
+        stale = [uid for uid, (_, ts) in self._pending_uploads.items() if now - ts > max_age]
+        for uid in stale:
+            del self._pending_uploads[uid]
 
     @filter.command("上传书籍")
     async def upload_book_text(self, event: AstrMessageEvent, book_name: str, content: str):
@@ -204,11 +211,12 @@ class BookshelfPlugin(Star):
     async def wait_text_file(self, event: AstrMessageEvent, book_name: str):
         """先登记书名，然后下一条消息发送 txt 文件。"""
         uid = str(event.get_sender_id())
-        self._pending_uploads[uid] = book_name.strip()
+        self._pending_uploads[uid] = (book_name.strip(), time.time())
         yield event.plain_result(f"好，把《{book_name}》的 .txt 文件发过来。")
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def receive_file(self, event: AstrMessageEvent):
+        self._cleanup_stale_uploads()
         uid = str(event.get_sender_id())
         if uid not in self._pending_uploads:
             return
@@ -221,7 +229,13 @@ class BookshelfPlugin(Star):
         if file_comp is None:
             return
 
-        book_name = self._pending_uploads.pop(uid)
+        # 文件类型检查
+        filename = getattr(file_comp, "file", "") or getattr(file_comp, "name", "") or ""
+        if not filename.lower().endswith(".txt"):
+            yield event.plain_result("只支持 .txt 格式的文本文件。")
+            return
+
+        book_name, _ = self._pending_uploads.pop(uid)
         try:
             file_path = await file_comp.get_file()
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
