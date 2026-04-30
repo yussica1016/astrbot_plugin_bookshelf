@@ -288,7 +288,7 @@ class BookshelfPlugin(Star):
     @filter.regex(r"^/?读第\s+(.+?)\s+第?\s*(\d+)\s*章?$")
     async def read_chapter(self, event: AstrMessageEvent):
         raw = event.message_str.strip()
-        m = re.match(r"^/?读第\s+(.+?)\s+第?\s*(\d+)\s*章?$", raw)
+        m = _RE_READ_CHAPTER.match(raw)
         if not m:
             return
         book_name = m.group(1).strip()
@@ -320,7 +320,7 @@ class BookshelfPlugin(Star):
     @filter.regex(r"^/?写笔记\s+(.+?)\s+第?\s*(\d+)\s*章\s+(.+)$")
     async def write_note(self, event: AstrMessageEvent):
         raw = event.message_str.strip()
-        m = re.match(r"^/?写笔记\s+(.+?)\s+第?\s*(\d+)\s*章\s+(.+)$", raw, re.S)
+        m = _RE_WRITE_NOTE.match(raw)
         if not m:
             return
         book_name, chapter_no, content = m.group(1).strip(), int(m.group(2)), m.group(3).strip()
@@ -335,7 +335,7 @@ class BookshelfPlugin(Star):
     @filter.regex(r"^/?看笔记\s+(.+?)\s+第?\s*(\d+)\s*章?$")
     async def read_notes(self, event: AstrMessageEvent):
         raw = event.message_str.strip()
-        m = re.match(r"^/?看笔记\s+(.+?)\s+第?\s*(\d+)\s*章?$", raw)
+        m = _RE_READ_NOTES.match(raw)
         if not m:
             return
         book_name, chapter_no = m.group(1).strip(), int(m.group(2))
@@ -362,7 +362,7 @@ class BookshelfPlugin(Star):
     @filter.regex(r"^/?读后感\s+(.+?)\s+第?\s*(\d+)\s*章\s+(.+)$")
     async def write_thought(self, event: AstrMessageEvent):
         raw = event.message_str.strip()
-        m = re.match(r"^/?读后感\s+(.+?)\s+第?\s*(\d+)\s*章\s+(.+)$", raw, re.S)
+        m = _RE_WRITE_THOUGHT.match(raw)
         if not m:
             return
         book_name, chapter_no, content = m.group(1).strip(), int(m.group(2)), m.group(3).strip()
@@ -377,7 +377,7 @@ class BookshelfPlugin(Star):
     @filter.regex(r"^/?看读后感\s+(.+?)(?:\s+第?\s*(\d+)\s*章?)?$")
     async def read_thoughts(self, event: AstrMessageEvent):
         raw = event.message_str.strip()
-        m = re.match(r"^/?看读后感\s+(.+?)(?:\s+第?\s*(\d+)\s*章?)?$", raw)
+        m = _RE_READ_THOUGHTS.match(raw)
         if not m:
             return
         book_name = m.group(1).strip()
