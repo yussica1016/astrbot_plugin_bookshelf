@@ -18,6 +18,19 @@ def _safe_name(name: str) -> str:
     return name[:80] or "未命名书籍"
 
 
+# 预编译正则，避免每次调用重复编译
+_RE_CHAPTER = re.compile(
+    r"(?m)^\s*((?:第\s*[一二三四五六七八九十百千万零〇0-9]+\s*[章节卷回篇幕].*)|(?:CHAPTER\s+[0-9IVXLCDM]+.*))\s*$",
+    re.IGNORECASE,
+)
+_RE_NORMALIZE = re.compile(r"\n{3,}")
+_RE_READ_CHAPTER = re.compile(r"^/?读第\s+(.+?)\s+第?\s*(\d+)\s*章?$")
+_RE_WRITE_NOTE = re.compile(r"^/?写笔记\s+(.+?)\s+第?\s*(\d+)\s*章\s+(.+)$", re.S)
+_RE_READ_NOTES = re.compile(r"^/?看笔记\s+(.+?)\s+第?\s*(\d+)\s*章?$")
+_RE_WRITE_THOUGHT = re.compile(r"^/?读后感\s+(.+?)\s+第?\s*(\d+)\s*章\s+(.+)$", re.S)
+_RE_READ_THOUGHTS = re.compile(r"^/?看读后感\s+(.+?)(?:\s+第?\s*(\d+)\s*章?)?$")
+
+
 def _ensure_dir(data_dir: str) -> None:
     os.makedirs(data_dir, exist_ok=True)
 
@@ -58,14 +71,17 @@ def _load_json(path: str, default: Any) -> Any:
 
 
 def _save_json(path: str, data: Any) -> None:
+    """原子写入：先写临时文件再rename，防止写入中途崩溃导致数据损坏"""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, path)
 
 
 def _normalize_text(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = _RE_NORMALIZE.sub("\n\n", text)
     return text.strip()
 
 
@@ -75,11 +91,7 @@ def _split_chapters(text: str) -> List[Tuple[str, str]]:
     if not text:
         return []
 
-    pattern = re.compile(
-        r"(?m)^\s*((?:第\s*[一二三四五六七八九十百千万零〇0-9]+\s*[章节卷回篇幕].*)|(?:CHAPTER\s+[0-9IVXLCDM]+.*))\s*$",
-        re.IGNORECASE,
-    )
-    matches = list(pattern.finditer(text))
+    matches = list(_RE_CHAPTER.finditer(text))
 
     chapters: List[Tuple[str, str]] = []
     if matches:
@@ -216,8 +228,11 @@ class BookshelfPlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def receive_file(self, event: AstrMessageEvent):
-        self._cleanup_stale_uploads()
         uid = str(event.get_sender_id())
+        # 提前return：只在有待上传记录时才继续处理，避免每条消息都走后续逻辑
+        if uid not in self._pending_uploads:
+            return
+        self._cleanup_stale_uploads()
         if uid not in self._pending_uploads:
             return
 
